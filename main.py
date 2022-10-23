@@ -8,6 +8,10 @@ import queue
 from scipy.io.wavfile import write
 import numpy
 import ctypes
+import os
+
+# config variables
+from config import *
 
 class AudioSamp:
     def __init__(self,buffer:numpy.array,in_lan:str,out_lan:str):
@@ -86,13 +90,36 @@ class Microphone:
 class QuickTrans:
     def __init__(self,mic:Microphone,langs):
         self._langs = langs
-        self._input_lang=self._langs[0]
-        self._output_lang=self._langs[0]
+        self._input_lang=self.check_input_langs()
+        self._output_lang=self.check_output_langs()
         self._mic = mic
         self.stt_queue = queue.Queue(20)
         self.stt_th=None
         self.clear_buffer()
         self.speech_begin=False
+        self.recording=False
+
+    def check_input_langs(self):
+        entries=os.listdir(STT_DIRECTORY+"/")
+
+        langs=[]
+
+        for entry in entries:
+            if os.path.isdir(STT_DIRECTORY+"/"+entry):
+                langs.append(entry)
+
+        return langs
+
+    def check_output_langs(self):
+        entries=os.listdir(TTS_DIRECTORY+"/")
+
+        langs=[]
+
+        for entry in entries:
+            if os.path.isdir(TTS_DIRECTORY+"/"+entry):
+                langs.append(entry)
+
+        return langs
 
     
     def supported_languages(self):
@@ -160,16 +187,21 @@ class QuickTrans:
     def stt_thread(self):
         '''stt thread function'''
         while True:
+            '''get audio sample from queue'''
             item=self.stt_queue.get()
+            '''check if audio sample was accquired'''
             if type(item) == AudioSamp:
+                '''perform speech to text operation'''
                 output=self.speech_to_text(item.buffer,item.input_lang)
+
                 print(output)
+                '''check if stt generated valid output'''
                 if type(output)==str and len(output)>0:
+                    '''then translate it'''
                     translated=self.translate(output,item.input_lang,item.output_lang)
                     print(translated.text)
 
             self.stt_queue.task_done()
-
 
     def put_to_stt(self,smp:AudioSamp):
         '''put audio sample to stt thread'''
@@ -179,19 +211,23 @@ class QuickTrans:
         '''get microphone object'''
         return self._mic
 
+    def startRecording(self):
+        self.speech_begin=True
+
     def main_task(self):
 
         '''wait for stt queue to be empty'''
         if self.stt_queue.full():
-            pass
-            
-        '''get voice samples'''
-        sample=self.mic().get()
+            return
+        
+        if self.recording:
+            '''get voice samples'''
+            sample=self.mic().get()
 
-        if sample is not None:
-            self.concat_buffer(sample)
-            print("voice!!")
-            self.speech_begin=True
+            if sample is not None:
+                self.concat_buffer(sample)
+                print("voice!!")
+                self.speech_begin=True
         elif self.speech_begin:
             self.put_to_stt(AudioSamp(self.buffer,self.input_language(),self.output_language()))
             self.speech_begin=False
@@ -218,7 +254,7 @@ mic=Microphone(CHUNK,FORMAT,CHANNELS,RATE)
 
 print("Microphone ready!!")
 
-quick=QuickTrans(mic,['en','de','pl'])
+quick=QuickTrans(mic)
 
 print("Quick translator setuped!!")
 
